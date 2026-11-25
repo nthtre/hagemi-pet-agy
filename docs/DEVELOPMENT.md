@@ -129,7 +129,9 @@ A model call has to pass every check below. Small moments stay scripted and free
 | The same situation twice | never within 6 hours | |
 | After a failure | backs off for 2 to 60 minutes, then uses a scripted line | |
 
-Calls go through Antigravity's own local language server with your signed-in account, so there is no API key, and they count toward your normal quota. Token counts are estimates, because the endpoint does not report usage. Comments made by AI are marked with ✦, and today's tally is in the settings panel.
+Calls go through Antigravity's own local language server with your signed-in account by default (`ai.provider: 'antigravity'`), so there is no API key, and they count toward your normal quota. Token counts are estimates, because the endpoint does not report usage.
+
+When `ai.provider` is set to `'openai'`, `'anthropic'`, or `'gemini'`, `sidecars/pet/lib/custom-api.mjs` sends direct HTTP requests via Node's built-in `fetch` (falling back to `HAGEMI_API_KEY` if `ai.apiKey` is empty), skips the Antigravity quota cutoff, and records provider-reported token usage when present. Comments made by AI are marked with ✦, and today's tally is in the settings panel.
 
 Settings are saved to `~/.gemini/antigravity/sidecar_data/hagemi-pet-agy/pet/data/settings.json`.
 

@@ -17,7 +17,11 @@ export const DEFAULTS = Object.freeze({
   quota: Object.freeze({ lowAt: 0.25, criticalAt: 0.1, resetSoonMin: 20 }),
   ai: Object.freeze({
     enabled: true,
+    provider: 'antigravity',
     model: 'Gemini 3.8 Flash (Low)',
+    apiBaseUrl: '',
+    apiKey: '',
+    apiModel: '',
     minIntervalMin: 2,
     maxPerHour: 30,
     maxPerDay: 300,
@@ -35,6 +39,12 @@ const number = (value, low, high, fallback) => {
   return Number.isFinite(parsed) ? Math.min(high, Math.max(low, parsed)) : fallback;
 };
 const bool = (value, fallback) => (typeof value === 'boolean' ? value : fallback);
+const httpUrl = (value, fallback) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim().slice(0, 300);
+  if (!trimmed) return '';
+  return /^https?:\/\/\S+$/i.test(trimmed) ? trimmed.replace(/\/+$/, '') : fallback;
+};
 
 const SETTINGS_VERSION = 2;
 // Version 1 saved every value, defaults included, which would have pinned them forever.
@@ -83,7 +93,11 @@ export function sanitize(input = {}, base = DEFAULTS) {
     },
     ai: {
       enabled: bool(ai.enabled, base.ai.enabled),
+      provider: oneOf(ai.provider, ['antigravity', 'openai', 'anthropic', 'gemini'], base.ai.provider),
       model: typeof ai.model === 'string' && ai.model.trim() ? ai.model.trim().slice(0, 80) : base.ai.model,
+      apiBaseUrl: httpUrl(ai.apiBaseUrl, base.ai.apiBaseUrl),
+      apiKey: typeof ai.apiKey === 'string' ? ai.apiKey.trim().slice(0, 300) : base.ai.apiKey,
+      apiModel: typeof ai.apiModel === 'string' ? ai.apiModel.trim().slice(0, 120) : base.ai.apiModel,
       minIntervalMin: number(ai.minIntervalMin, 1, 1440, base.ai.minIntervalMin),
       maxPerHour: number(ai.maxPerHour, 0, 60, base.ai.maxPerHour),
       maxPerDay: number(ai.maxPerDay, 0, 500, base.ai.maxPerDay),

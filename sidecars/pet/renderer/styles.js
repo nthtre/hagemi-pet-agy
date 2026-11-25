@@ -61,12 +61,17 @@ HAGEMI.css = `
 .panel-section { margin: 11px 0 5px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: #7c5cd6; }
 .field { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 3px 0; }
 .field > span { flex: 1 1 auto; }
-.field select, .field input[type="number"], .field textarea {
+.field select, .field input[type="number"], .field input[type="text"], .field input[type="password"], .field textarea {
   font: inherit; color: inherit; background: #faf8ff; border: 1px solid #d9cffb; border-radius: 7px; padding: 3px 6px; max-width: 148px;
 }
 .field input[type="number"] { width: 70px; }
+.field input[type="text"], .field input[type="password"] { width: 148px; box-sizing: border-box; }
 .field input[type="checkbox"] { accent-color: #8b5cf6; width: 15px; height: 15px; }
 .field textarea { width: 148px; resize: vertical; }
+.api-test-btn { margin: 4px 0 6px; padding: 5px 10px; }
+.api-test-status { font-size: 11px; margin-bottom: 4px; word-break: break-word; }
+.api-test-status[data-state="ok"] { color: #15803d; }
+.api-test-status[data-state="fail"] { color: #be123c; }
 .panel-note { color: #6b5b95; }
 .panel-note + .panel-note { margin-top: 5px; }
 .panel-link { color: #7c3aed; margin-right: 12px; }

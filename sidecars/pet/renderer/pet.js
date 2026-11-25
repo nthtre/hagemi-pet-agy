@@ -294,6 +294,23 @@ HAGEMI.boot = async function boot(send, options = {}) {
 
   // Settings live on the pet: the app offers plugins no way to open a pane on demand.
   let modelChoices = [], usage = null;
+  let apiTestState = null, apiTestButton = null, apiTestStatus = null;
+  function renderApiTest() {
+    if (!apiTestButton || !apiTestStatus) return;
+    const testing = apiTestState?.phase === 'testing';
+    apiTestButton.disabled = testing;
+    apiTestButton.textContent = testing ? (ui.ai_testing || 'Testing…') : (ui.ai_test || 'Test API connection');
+    if (!apiTestState || testing) {
+      apiTestStatus.textContent = '';
+      apiTestStatus.removeAttribute('data-state');
+      apiTestStatus.style.display = 'none';
+      return;
+    }
+    apiTestStatus.style.display = 'block';
+    apiTestStatus.dataset.state = apiTestState.phase;
+    const prefix = apiTestState.phase === 'ok' ? (ui.ai_test_ok || 'Connected: ') : (ui.ai_test_fail || 'Failed: ');
+    apiTestStatus.textContent = `${prefix}${apiTestState.text || ''}`;
+  }
   function renderUpdate() {
     if (!updateCard) return;
     updateCard.replaceChildren();
@@ -361,6 +378,16 @@ HAGEMI.boot = async function boot(send, options = {}) {
       control.addEventListener('change', () => onChange(Number(control.value)));
       return control;
     };
+    const textInput = (value, placeholder, type, onChange) => {
+      const control = document.createElement('input');
+      control.type = type;
+      control.value = value || '';
+      control.placeholder = placeholder || '';
+      control.spellcheck = false;
+      control.autocomplete = 'off';
+      control.addEventListener('change', () => onChange(control.value));
+      return control;
+    };
     section(ui.section_pet || 'Pet');
     field(ui.language || 'Language', select(s.language, [['auto', ui.language_auto], ['en', ui.language_en], ['zhs', ui.language_zhs]], value => patch({ language: value })));
     field(ui.size || 'Size', select(s.size, [['xs', ui.size_xs], ['s', ui.size_s], ['m', ui.size_m], ['l', ui.size_l], ['xl', ui.size_xl]], value => patch({ size: value })));
@@ -372,14 +399,70 @@ HAGEMI.boot = async function boot(send, options = {}) {
     field(ui.mute || 'Mute comments', check(s.muted, value => patch({ muted: value })));
     section(ui.section_ai || 'AI comments');
     field(ui.ai_enabled || 'Use AI', check(ai.enabled, value => patch({ ai: { enabled: value } })));
-    const choices = [...new Set([ai.model, ...modelChoices])].filter(Boolean).map(label => [label, label]);
-    field(ui.ai_model || 'Model', select(ai.model, choices, value => patch({ ai: { model: value } })));
+    const provider = ai.provider || 'antigravity';
+    field(ui.ai_provider || 'AI source', select(provider, [
+      ['antigravity', ui.ai_provider_antigravity || 'Antigravity (built-in)'],
+      ['openai', ui.ai_provider_openai || 'Custom OpenAI-compatible'],
+      ['anthropic', ui.ai_provider_anthropic || 'Custom Anthropic'],
+      ['gemini', ui.ai_provider_gemini || 'Custom Gemini'],
+    ], value => {
+      apiTestState = null;
+      patch({ ai: { provider: value } });
+      const scroll = panel.scrollTop;
+      openPanel();
+      panel.scrollTop = scroll;
+    }));
+    apiTestButton = null;
+    apiTestStatus = null;
+    if (provider === 'antigravity') {
+      const choices = [...new Set([ai.model, ...modelChoices])].filter(Boolean).map(label => [label, label]);
+      field(ui.ai_model || 'Model', select(ai.model, choices, value => patch({ ai: { model: value } })));
+    } else {
+      const baseHints = {
+        openai: 'https://api.openai.com/v1',
+        anthropic: 'https://api.anthropic.com/v1',
+        gemini: 'https://generativelanguage.googleapis.com/v1beta',
+      };
+      const modelHints = {
+        openai: 'gpt-4o-mini / deepseek-chat',
+        anthropic: 'claude-sonnet-4-5',
+        gemini: 'gemini-2.5-flash',
+      };
+      field(ui.ai_apiBaseUrl || 'API Base URL', textInput(ai.apiBaseUrl, baseHints[provider] || '', 'text', value => {
+        apiTestState = null;
+        renderApiTest();
+        patch({ ai: { apiBaseUrl: value } });
+      }));
+      field(ui.ai_apiKey || 'API Key', textInput(ai.apiKey, ui.ai_apiKey_placeholder || 'Blank = HAGEMI_API_KEY / local', 'password', value => {
+        apiTestState = null;
+        renderApiTest();
+        patch({ ai: { apiKey: value } });
+      }));
+      field(ui.ai_apiModel || 'Custom model', textInput(ai.apiModel, modelHints[provider] || '', 'text', value => {
+        apiTestState = null;
+        renderApiTest();
+        patch({ ai: { apiModel: value } });
+      }));
+      apiTestButton = make('button', 'update-button api-test-btn', panel);
+      apiTestButton.type = 'button';
+      apiTestButton.addEventListener('click', () => {
+        apiTestState = { phase: 'testing' };
+        renderApiTest();
+        send({ type: 'ai_test' });
+      });
+      apiTestStatus = make('div', 'panel-note api-test-status', panel);
+      apiTestStatus.setAttribute('role', 'status');
+      apiTestStatus.setAttribute('aria-live', 'polite');
+      renderApiTest();
+    }
     field(ui.ai_contextLevel || 'What she can see', select(ai.contextLevel, [['minimal', ui.context_minimal], ['titles', ui.context_titles], ['snippets', ui.context_snippets]], value => patch({ ai: { contextLevel: value } })));
     field(ui.ai_minIntervalMin || 'Minutes between', number(ai.minIntervalMin, 1, 1440, value => patch({ ai: { minIntervalMin: value } })));
     field(ui.ai_maxPerHour || 'Max per hour', number(ai.maxPerHour, 0, 60, value => patch({ ai: { maxPerHour: value } })));
     field(ui.ai_maxPerDay || 'Max per day', number(ai.maxPerDay, 0, 500, value => patch({ ai: { maxPerDay: value } })));
     field(ui.ai_dailyTokenBudget || 'Daily token budget', number(ai.dailyTokenBudget, 0, 500000, value => patch({ ai: { dailyTokenBudget: value } })));
-    field(ui.ai_pauseBelowQuota || 'Stop below quota %', number(Math.round((ai.pauseBelowQuota ?? 0.1) * 100), 0, 100, value => patch({ ai: { pauseBelowQuota: value / 100 } })));
+    if (provider === 'antigravity') {
+      field(ui.ai_pauseBelowQuota || 'Stop below quota %', number(Math.round((ai.pauseBelowQuota ?? 0.1) * 100), 0, 100, value => patch({ ai: { pauseBelowQuota: value / 100 } })));
+    }
     field(ui.ai_onlyWhenFocused || 'Only when focused', check(ai.onlyWhenFocused, value => patch({ ai: { onlyWhenFocused: value } })));
     const persona = document.createElement('textarea');
     persona.rows = 2;
@@ -747,6 +830,12 @@ HAGEMI.boot = async function boot(send, options = {}) {
       case 'models':
         modelChoices = message.models || modelChoices;
         usage = message.usage || usage;
+        break;
+      case 'ai_test':
+        apiTestState = message.ok
+          ? { phase: 'ok', text: message.preview || '' }
+          : { phase: 'fail', text: message.error || '' };
+        renderApiTest();
         break;
       case 'heartbeat':
         applyVisibility();

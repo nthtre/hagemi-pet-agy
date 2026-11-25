@@ -137,14 +137,14 @@ Her settings are kept in case she comes back.
 
 ## AI comments
 
-Most of what she says is written by hand. For bigger moments, like a finished job, a failure or a quota change, she can ask a model for a fresh comment instead, marked with ✦. It uses your Antigravity account and counts toward your normal quota, so there is no API key to set up.
+Most of what she says is written by hand. For bigger moments, like a finished job, a failure or a quota change, she can ask a model for a fresh comment instead, marked with ✦. By default this uses your Antigravity account and counts toward your normal quota with no API key to set up. You can also switch **AI source** in **Settings…** to your own **OpenAI-compatible**, **Anthropic**, or **Gemini** API (or a local endpoint such as Ollama) and test the connection inline.
 
 The defaults are generous but capped:
 
-- **Model:** Gemini 3.8 Flash (Low), the cheapest. You can pick any model in your list.
+- **Model:** Gemini 3.8 Flash (Low), the cheapest. You can pick any model in your list, or specify a custom model ID when using your own API.
 - **How often:** at most one comment every 2 minutes, 30 an hour and 300 a day.
-- **Token budget:** 200,000 a day (estimated, including prompts and replies).
-- **When:** only while the Antigravity window is in front, and never once that model's quota is below 10%.
+- **Token budget:** 200,000 a day (estimated, including prompts and replies; uses reported usage when a custom API returns it).
+- **When:** only while the Antigravity window is in front, and (for the built-in Antigravity source) never once that model's quota is below 10%.
 - **Repeats:** never the same situation twice within 6 hours.
 
 Turn AI off and she keeps every hand-written line.

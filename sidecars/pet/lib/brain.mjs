@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { pickLine } from './lines.mjs';
 import { buildPrompt, estimateTokens, parseReply, scrub } from './persona.mjs';
 import { CHATTINESS, REACTIONS } from './director.mjs';
+import { callCustomApi as defaultCallCustomApi, isCustomApiConfigured } from './custom-api.mjs';
 
 const MINUTE = 60000, HOUR = 3600000;
 const FAILURE_BACKOFF_MS = [2, 5, 15, 30, 60].map(minutes => minutes * MINUTE);
@@ -88,8 +89,8 @@ export class ModelResolver {
 }
 
 export class Brain {
-  constructor({ ls, budget, models, getSettings, getLanguage, getPresence, getQuotaLevel, now = Date.now, random = Math.random, say, log = () => {} }) {
-    Object.assign(this, { ls, budget, models, getSettings, getLanguage, getPresence, getQuotaLevel, now, random, say, log });
+  constructor({ ls, budget, models, callCustomApi = defaultCallCustomApi, getSettings, getLanguage, getPresence, getQuotaLevel, now = Date.now, random = Math.random, say, log = () => {} }) {
+    Object.assign(this, { ls, budget, models, callCustomApi, getSettings, getLanguage, getPresence, getQuotaLevel, now, random, say, log });
     this.lastTrigger = new Map();
     this.lastBubbleAt = 0;
     this.inFlight = false;
@@ -97,6 +98,11 @@ export class Brain {
     this.retryAt = 0;
     this.seen = new Map();
     this.recent = [];
+  }
+
+  resetBackoff() {
+    this.failures = 0;
+    this.retryAt = 0;
   }
 
   // Why the model should not be used for this moment, or null to go ahead.
@@ -109,6 +115,11 @@ export class Brain {
     if (this.now() < this.retryAt) return 'backoff';
     const presence = this.getPresence();
     if (ai.onlyWhenFocused && !(presence.visible && presence.focused)) return 'unfocused';
+    const isCustom = ai.provider && ai.provider !== 'antigravity';
+    if (isCustom) {
+      if (!isCustomApiConfigured(ai)) return 'missing-api-config';
+      return null;
+    }
     const level = this.getQuotaLevel();
     if (level != null && level <= ai.pauseBelowQuota) return 'low-quota';
     return null;
@@ -152,10 +163,16 @@ export class Brain {
 
   async generate(trigger, context, language) {
     const { ai } = this.getSettings();
-    await this.models.refresh().catch(() => {});
-    const model = this.models.resolve(ai.model);
-    if (!model) return null;
-    if (model.remaining != null && model.remaining <= ai.pauseBelowQuota) return null;
+    const isCustom = ai.provider && ai.provider !== 'antigravity';
+    let model = null;
+    if (isCustom) {
+      if (!isCustomApiConfigured(ai)) return null;
+    } else {
+      await this.models.refresh().catch(() => {});
+      model = this.models.resolve(ai.model);
+      if (!model) return null;
+      if (model.remaining != null && model.remaining <= ai.pauseBelowQuota) return null;
+    }
     const { situation, facts } = this.describe(trigger, context, language);
     const prompt = buildPrompt({ language, situation, facts, recent: this.recent.slice(-2), personaExtra: ai.personaExtra });
     const key = createHash('sha1').update(`${language}|${situation}|${facts.slice(1).join('|')}`).digest('hex');
@@ -168,9 +185,19 @@ export class Brain {
     this.seen.set(key, this.now());
     if (this.seen.size > 200) this.seen.delete(this.seen.keys().next().value);
     try {
-      const response = await this.ls.call('GetModelResponse', { prompt, model: model.id }, 30000);
-      const parsed = parseReply(response.response, language);
-      this.budget.record(estimateTokens(prompt) + estimateTokens(response.response || ''));
+      let rawText = '', usedTokens = null;
+      if (isCustom) {
+        const result = await this.callCustomApi({
+          provider: ai.provider, baseUrl: ai.apiBaseUrl, apiKey: ai.apiKey, model: ai.apiModel, prompt, timeoutMs: 30000,
+        });
+        rawText = result.text || '';
+        usedTokens = result.totalTokens;
+      } else {
+        const response = await this.ls.call('GetModelResponse', { prompt, model: model.id }, 30000);
+        rawText = response.response || '';
+      }
+      const parsed = parseReply(rawText, language);
+      this.budget.record(usedTokens || (estimateTokens(prompt) + estimateTokens(rawText)));
       this.failures = 0;
       return parsed;
     } catch (error) {

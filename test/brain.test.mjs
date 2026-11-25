@@ -22,7 +22,7 @@ function harness(overrides = {}) {
   const presence = { visible: true, focused: true, ...overrides.presence };
   const budget = new Budget(null, () => now);
   const brain = new Brain({
-    ls, budget, models: new ModelResolver(ls), now: () => now, random: () => 0,
+    ls, budget, models: new ModelResolver(ls), callCustomApi: overrides.callCustomApi, now: () => now, random: () => 0,
     getSettings: () => settings.value, getLanguage: () => overrides.language || 'en', getPresence: () => presence,
     getQuotaLevel: () => overrides.quotaLevel ?? 0.9, say: (result, trigger) => said.push({ ...result, trigger }),
   });
@@ -205,4 +205,56 @@ test('model names resolve loosely, preferring the cheap variant', async () => {
   assert.equal(models.resolve('Gemini 3.8 Flash (High)').id, 'H');
   assert.equal(models.resolve('MODEL_RAW').id, 'MODEL_RAW');
   assert.equal(models.resolve('nonexistent'), null);
+});
+
+test('custom API provider bypasses Antigravity LS and quota cutoff, and records API token usage', async () => {
+  const customCalls = [];
+  const { brain, calls, said, budget } = harness({
+    quotaLevel: 0.01,
+    settings: { ai: { provider: 'openai', apiBaseUrl: 'https://api.deepseek.com/v1', apiKey: 'sk-x', apiModel: 'deepseek-chat' } },
+    callCustomApi: async args => {
+      customCalls.push(args);
+      return { text: 'happy|External API works, nya!', totalTokens: 321 };
+    },
+  });
+  const result = await brain.consider('turn_done_big', context);
+  assert.equal(modelCalls(calls).length, 0);
+  assert.equal(customCalls.length, 1);
+  assert.equal(customCalls[0].provider, 'openai');
+  assert.equal(customCalls[0].model, 'deepseek-chat');
+  assert.equal(result.ai, true);
+  assert.equal(result.text, 'External API works, nya!');
+  assert.equal(said[0].ai, true);
+  assert.equal(budget.usage.tokens, 321);
+});
+
+test('missing custom API config falls back to scripted line and resetBackoff clears failure cooldown', async () => {
+  const missing = harness({
+    settings: { ai: { provider: 'gemini', apiBaseUrl: '', apiKey: '', apiModel: 'gemini-2.5-flash' } },
+    callCustomApi: async () => { throw new Error('should not be called'); },
+  });
+  const fallback = await missing.brain.consider('turn_done_big', { ...context, vars: { count: 9 } });
+  assert.equal(fallback.ai, false);
+
+  let failNext = true;
+  let attempts = 0;
+  const failing = harness({
+    settings: { ai: { provider: 'anthropic', apiBaseUrl: 'https://proxy.local', apiKey: '', apiModel: 'claude-sonnet-4-5' } },
+    callCustomApi: async () => {
+      attempts++;
+      if (failNext) throw new Error('boom');
+      return { text: 'smug|Back online, nya.', totalTokens: 50 };
+    },
+  });
+  await failing.brain.consider('turn_done_big', { ...context, title: 'first' });
+  assert.equal(attempts, 1);
+  failing.advance(1);
+  await failing.brain.consider('turn_done_big', { ...context, title: 'second' });
+  assert.equal(attempts, 1, 'blocked by backoff');
+  failNext = false;
+  failing.brain.resetBackoff();
+  failing.advance(3);
+  const recovered = await failing.brain.consider('turn_done_big', { ...context, title: 'third' });
+  assert.equal(attempts, 2);
+  assert.equal(recovered.ai, true);
 });

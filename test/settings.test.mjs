@@ -90,3 +90,21 @@ test('docking is remembered with the position', () => {
   assert.equal(value.position.dock, 'left');
   assert.equal(sanitize({ position: { x: 0, y: 0.5, dock: 'sideways' } }).position.dock, undefined);
 });
+
+test('custom API settings are validated and persisted', () => {
+  assert.equal(DEFAULTS.ai.provider, 'antigravity');
+  const bad = sanitize({ ai: { provider: 'unknown', apiBaseUrl: 'ftp://bad.example.com', apiKey: '  sk-test  ', apiModel: '  gpt-4o-mini  ' } });
+  assert.equal(bad.ai.provider, 'antigravity');
+  assert.equal(bad.ai.apiBaseUrl, '');
+  assert.equal(bad.ai.apiKey, 'sk-test');
+  assert.equal(bad.ai.apiModel, 'gpt-4o-mini');
+
+  const file = join(mkdtempSync(join(tmpdir(), 'hagemi-')), 'settings.json');
+  const store = new SettingsStore(file);
+  store.patch({ ai: { provider: 'openai', apiBaseUrl: 'https://api.deepseek.com/v1///', apiKey: 'sk-abc', apiModel: 'deepseek-chat' } });
+  const reloaded = new SettingsStore(file);
+  assert.equal(reloaded.value.ai.provider, 'openai');
+  assert.equal(reloaded.value.ai.apiBaseUrl, 'https://api.deepseek.com/v1');
+  assert.equal(reloaded.value.ai.apiKey, 'sk-abc');
+  assert.equal(reloaded.value.ai.apiModel, 'deepseek-chat');
+});

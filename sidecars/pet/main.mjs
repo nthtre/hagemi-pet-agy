@@ -6,10 +6,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Brain, Budget, ModelResolver } from './lib/brain.mjs';
 import { RendererBridge } from './lib/cdp.mjs';
+import { callCustomApi, isCustomApiConfigured } from './lib/custom-api.mjs';
 import { ambientTriggers, chooseState, classifyTurnEnd, festival, isLate, modelFamily, REACTIONS, timeOfDay } from './lib/director.mjs';
 import { fill, resolveLanguage, UI } from './lib/lines.mjs';
 import { LanguageServer } from './lib/ls-client.mjs';
 import { Monitor } from './lib/monitor.mjs';
+import { buildPrompt, parseReply } from './lib/persona.mjs';
 import { formatDuration, isResetSoon, levelForModel, parseQuota, quotaEvents, quotaRows, summarize } from './lib/quota.mjs';
 import { readArt } from './lib/renderer-source.mjs';
 import { SettingsStore } from './lib/settings.mjs';
@@ -262,10 +264,14 @@ function onPetMessage(message, session) {
     case 'settings': {
       const before = settings.value.language;
       settings.patch(message.patch);
+      if (message.patch?.ai) brain.resetBackoff();
       if (settings.value.language !== before) bridge.broadcast({ t: 'settings', settings: settings.value, ui: ui() });
       publishFacts();
       break;
     }
+    case 'ai_test':
+      testCustomApi(session);
+      break;
     case 'presence':
       presence = { visible: !!message.visible, focused: !!message.focused, idleMs: Number(message.idleMs) || 0 };
       if (message.language) appLanguage = message.language;
@@ -294,6 +300,37 @@ async function sendModelChoices(session) {
     const configs = await models.refresh();
     bridge.post(session, { t: 'models', models: configs.map(c => c.label), usage: budget.usage });
   } catch { /* The picker falls back to a free-text field. */ }
+}
+
+async function testCustomApi(session) {
+  const ai = settings.value.ai;
+  const lang = language();
+  if (ai.provider === 'antigravity' || !isCustomApiConfigured(ai)) {
+    bridge.post(session, {
+      t: 'ai_test',
+      ok: false,
+      error: lang === 'zhs'
+        ? '请先选择自定义来源并填写模型名（官方地址需填 API Key）'
+        : 'Select a custom provider and fill in the model (and API key for default endpoints).',
+    });
+    return;
+  }
+  try {
+    const prompt = buildPrompt({
+      language: lang,
+      situation: lang === 'zhs' ? '用户正在测试自定义 API 连接' : 'The user is testing the custom API connection',
+      facts: [],
+      personaExtra: ai.personaExtra,
+    });
+    const res = await callCustomApi({
+      provider: ai.provider, baseUrl: ai.apiBaseUrl, apiKey: ai.apiKey, model: ai.apiModel, prompt, timeoutMs: 20000,
+    });
+    brain.resetBackoff();
+    const parsed = parseReply(res.text, lang);
+    bridge.post(session, { t: 'ai_test', ok: true, preview: parsed?.line || res.text.slice(0, 80) });
+  } catch (error) {
+    bridge.post(session, { t: 'ai_test', ok: false, error: String(error.message || error).slice(0, 200) });
+  }
 }
 
 const timers = [setInterval(pollQuota, 60000), setInterval(pollModel, 20000), setInterval(ambient, 5 * MINUTE)];

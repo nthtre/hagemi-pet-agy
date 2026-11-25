@@ -118,6 +118,8 @@ npm run build:under -- --import results.zip --variant s050_a
 | 同样的情况重复调用 | 6 小时内不会 | |
 | 失败之后 | 退避 2 到 60 分钟，期间改用台词 | |
 
-调用走 Antigravity 自己的本地语言服务器，使用你已登录的账号，所以不需要 API Key，也会计入你的正常额度。Token 数是估算值，因为接口不返回用量。AI 生成的吐槽会带 ✦ 标记，当天用量可以在设置面板里看到。
+默认情况下（`ai.provider: 'antigravity'`）调用走 Antigravity 自己的本地语言服务器，使用你已登录的账号，所以不需要 API Key，也会计入你的正常额度；Token 数是估算值，因为接口不返回用量。
+
+当 `ai.provider` 设为 `'openai'`、`'anthropic'` 或 `'gemini'` 时，`sidecars/pet/lib/custom-api.mjs` 会通过 Node 内置 `fetch` 直接请求对应接口（`ai.apiKey` 留空时回退读取环境变量 `HAGEMI_API_KEY`），跳过 Antigravity 额度低谷暂停检查，并在接口返回用量时记录真实 Token 数。AI 生成的吐槽会带 ✦ 标记，当天用量可以在设置面板里看到。
 
 设置保存在 `~/.gemini/antigravity/sidecar_data/hagemi-pet-agy/pet/data/settings.json`。
